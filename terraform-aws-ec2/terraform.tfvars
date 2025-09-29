@@ -1,0 +1,7 @@
+aws_regiao = "us-east-1"
+tipo_instancia_master = "t3a.small"
+tipo_instancia_workers = "t3.micro"
+nome_ssh_key = ""
+tamanho_volume = "20"
+projeto = "Projeto BRY"
+versao_terraform = "1.5.0"
