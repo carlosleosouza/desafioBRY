@@ -1,0 +1,80 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Instalação de pacote essenciais 
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      loop:
+        - curl
+        - apt-transport-https
+        - ca-certificates
+        - software-properties-common
+        - wget
+        - snap
+        - gnupg2
+    - name: Instalar o kubectl
+      snap:
+        name: kubectl
+        state: present
+        classic: yes
+    - name: Instalar o helm
+      snap:
+        name: helm
+        state: present
+        classic: yes
+
+- hosts: controlplane
+  become: true
+  vars:
+    k3s_version: "latest"  
+  tasks:
+    - name: Instalacao k3s (server)
+      shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3s_version }} sh -s - server --cluster-init
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Aquisição token do nó k3s
+      shell: cat /var/lib/rancher/k3s/server/node-token
+      register: node_token
+    - name: Salvar token em /tmp/k3s_token
+      copy:
+        content: "{{ node_token.stdout }}"
+        dest: /tmp/k3s_token
+        mode: 0600
+
+    - name: Obter o Kubeconfig para o control plane do ansible
+      fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: ./kubeconfig
+        flat: yes
+
+- hosts: workers
+  become: true
+  tasks:
+    - name: Copiar token do control plane para os nós workers
+      fetch:
+        src: /tmp/k3s_token
+        dest: /tmp/k3s_token_remote_{{ inventory_hostname }}
+        flat: yes
+      delegate_to: k8s-control
+
+    - name: Instalar agent do k3s
+      shell: |
+        TOKEN=$(cat /tmp/k3s_token_remote_{{ inventory_hostname }})
+        curl -sfL https://get.k3s.io | K3S_URL="https://{{ hostvars['k8s-control'].ansible_host }}:6443" K3S_TOKEN="$TOKEN" sh -
+      args:
+        creates: /usr/local/bin/k3s
+
+    - nome: Checar se o cluster está funcionando
+      shell: |
+        KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get nodes
+      register: result
+      failed_when: "'Ready' não está em result.stdout"
+      changed_when: false
+      delegate_to: k8s-control
+      retries: 5
+      delay: 10
+      until: result.rc == 0

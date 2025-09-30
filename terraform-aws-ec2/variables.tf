@@ -24,7 +24,7 @@ variable "nome_ssh_key" {
 variable "tamanho_volume" {
   description = "Tamanho do disco EBS em GB"
   type        = number
-  default     = 20
+  default     = 8
 }
 
 variable "projeto" {
