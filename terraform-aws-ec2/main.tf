@@ -69,7 +69,7 @@ resource "aws_instance" "k8s_control" {
   }
 
   tags = {
-    Name = var.projeto
+    Name = "${var.projeto}-controlplane-${count.index + 1}"
   }
 }
 
@@ -87,13 +87,14 @@ resource "aws_instance" "worker" {
   }
 
   tags = {
-    Name = var.projeto
+    Name = "${var.projeto}-worker-${count.index + 1}"
   }
 }
 
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/inventory.ini.j2", {
     public_ip = aws_instance.k8s_control.public_ip
+    public_dns = aws_instance.k8s_control.public_dns
   })
   filename = "${path.module}/../ansible/inventory.ini"
 }
