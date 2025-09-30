@@ -1,0 +1,225 @@
+# Pipeline GitLab CI/CD para aplicar recursos Kubernetes
+stages:
+  - validate
+  - build
+  - deploy
+  - verify
+
+variables:
+  KUBECTL_VERSION: "1.31.12"
+  KUBECONFIG: "/tmp/kubeconfig"
+
+# Template para jobs que precisam do kubectl
+.kubectl_template: &kubectl_template
+  image: registry-hub.fieb.org.br/pipeline-tools:latest
+  tags:
+    - hml_fbh101-806
+  before_script:
+    - echo "Configurando kubectl..."
+    - mkdir -p ~/.kube
+    - echo "${CI_KUBE_CONFIG_HML}" > kubeconfig
+    - export KUBECONFIG=kubeconfig
+    - kubectl version --client
+    - kubectl cluster-info
+
+# Validação dos manifestos YAML
+validate_manifests:
+  <<: *kubectl_template
+  stage: validate
+  script:
+    - echo "Validando sintaxe dos manifestos..."
+    - |
+      for file in *.yaml *.yml; do
+        if [ -f "$file" ]; then
+          echo "Validando $file"
+          kubectl apply --dry-run=client -f "$file"
+        fi
+      done
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "main"
+
+construcao_push_imagem:
+  stage: build
+  tags:
+    - imagebuilder
+  variables:
+    IMAGE_NAME: "$CI_REGISTRY_USER/postfix-mail-relay:latest"
+  before_script:
+    - echo ${CI_USER_PASSWORD_REG_GLOBAL} | docker login -u "${CI_USER_REG_GLOBAL}" --password-stdin "$CI_REGISTRY_USER"
+  script:
+    - set -e
+    - echo "Construindo e enviando imagem Docker..."
+    - docker build -t $IMAGE_NAME .
+    - docker push $IMAGE_NAME
+    - echo "Imagem enviada para $CI_REGISTRY_USER"
+
+# Deploy dos recursos
+deploy_resources:
+  <<: *kubectl_template
+  stage: deploy
+  script:
+    - echo "Aplicando recursos Kubernetes..."
+
+    # Aplicar namespaces primeiro
+    - |
+      if [ -f "namespace.yaml" ]; then
+        echo "Aplicando namespaces..."
+        kubectl apply -f namespace.yaml
+      fi
+
+    # Aplicar Secrets
+    - |
+      for file in secrets.yaml; do
+        if [ -f "$file" ]; then
+          echo "Aplicando $file"
+          kubectl apply -f "$file"
+        fi
+      done
+
+    # Aplicar PVs
+    - |
+      for file in storages.yaml; do
+        if [ -f "$file" ]; then
+          echo "Aplicando $file"
+          kubectl apply -f "$file"
+        fi
+      done
+
+    # Aplicar Services
+    - |
+      if [ -f "services.yaml" ]; then
+        echo "Aplicando services..."
+        kubectl apply -f services.yaml
+      fi
+
+    # Aplicar Deployments
+
+    - |
+      if kubectl get deployment postfix-relay -n postfix-mail-relay >/dev/null 2>&1; then
+        echo "Reduzindo réplicas para 0..."
+        kubectl scale deployment postfix-relay -n postfix-mail-relay --replicas=0
+        echo "Aguardando rollout da redução..."
+        kubectl rollout status deployment/postfix-relay -n postfix-mail-relay
+      else
+        echo "Deployment ainda não existe. Pulando scale."
+      fi
+
+      if [ -f "deployment.yaml" ]; then
+        echo "Aplicando deployment..."
+        kubectl apply -f deployment.yaml
+      fi
+
+  environment:
+    name: production
+    action: start
+
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "main"
+
+  dependencies:
+    - validate_manifests
+    - construcao_push_imagem
+
+# Verificação pós-deploy
+verify_deployment:
+  <<: *kubectl_template
+  stage: verify
+  script:
+    - echo "Verificando status dos recursos..."
+
+    # Verificar pods
+    - kubectl get pods -n postfix-mail-relay -o wide
+
+    # Verificar services
+    - kubectl get services -n postfix-mail-relay -o wide
+
+    # Verificar PVCs
+    - kubectl get pvc -n postfix-mail-relay -o wide
+
+    # Verificar PVs
+    - kubectl get pv -o wide
+
+    # Verificar deployments
+    - kubectl get deployments -n postfix-mail-relay -o wide
+
+    # Aguardar pods ficarem prontos (timeout de 5 minutos)
+    - |
+      echo "Aguardando pods ficarem prontos..."
+      kubectl wait --for=condition=Ready pods -n postfix-mail-relay --timeout=300s || true
+
+    # Status detalhado se houver problemas
+    - |
+      echo "Verificando pods com problemas..."
+      kubectl get pods -n postfix-mail-relay -o wide --field-selector=status.phase!=Running
+
+  dependencies:
+    - deploy_resources
+    - construcao_push_imagem
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "main"
+
+# Job para rollback (manual) - APENAS recursos deste projeto
+rollback:
+  <<: *kubectl_template
+  stage: deploy
+  script:
+    - echo "Iniciando rollback dos recursos deste projeto..."
+    - |
+      # Rollback apenas dos deployments listados nos arquivos YAML
+      for file in *.yaml *.yml; do
+        if [ -f "$file" ]; then
+          echo "Fazendo rollback dos deployments em $file"
+          # Extrair nomes dos deployments dos arquivos e fazer rollback
+          kubectl get -f "$file" -o name 2>/dev/null | grep "deployment" | while read deployment; do
+            echo "Rollback: $deployment"
+            kubectl rollout undo $deployment || true
+          done
+        fi
+      done
+    - echo "Rollback concluído!"
+
+  when: manual
+  allow_failure: true
+
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "main"
+
+# Job para limpeza (manual) - APENAS recursos deste projeto
+cleanup:
+  <<: *kubectl_template
+  stage: deploy
+  script:
+    - echo "Removendo APENAS os recursos deste projeto..."
+    - echo "⚠️  Esta ação vai deletar todos os recursos definidos nos arquivos YAML"
+    - echo "⚠️  Aguardando 10 segundos para cancelar se necessário..."
+    - sleep 10
+    - |
+      for file in *.yaml *.yml; do
+        if [ -f "$file" ]; then
+          echo "Removendo recursos de $file"
+          kubectl delete -f "$file" --ignore-not-found=true || true
+        fi
+      done
+    - echo "Limpeza concluída!"
+
+  when: manual
+  allow_failure: true
+
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "main"
+
+#Job para atualizar configmap com restart no deployment
+update_configmap_and_restart:
+  <<: *kubectl_template
+  stage: deploy
+  script:
+    - echo "Reiniciando Deployment..."
+    - kubectl rollout restart deployment/postfix-relay -n postfix-mail-relay || true
+    - echo "Aguardando rollout do restart..."
+    - kubectl rollout status deployment/postfix-relay -n postfix-mail-relay || true
+
+  when: manual
+  allow_failure: true
+
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "main"
