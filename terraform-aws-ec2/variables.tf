@@ -15,7 +15,14 @@ variable "tipo_instancia_workers" {
   type        = string
   default     = "t3.mciro"
 }
+variable "ami_id" {
+  description = "Versão da AMI - Ubuntu 24.04"
+  type        = string
+}
 
+variable "num_workers" {
+  default = 2
+}
 variable "nome_ssh_key" {
   description = "Nome da chave SSH já criada na AWS"
   type        = string

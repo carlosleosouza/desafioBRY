@@ -8,7 +8,6 @@ output "k8s_control_hostname" {
   value       = aws_instance.k8s_control.public_dns
 }
 
-
 output "public_ip" {
   description = "IP público da instância master"
   value       = aws_instance.ec2.public_ip

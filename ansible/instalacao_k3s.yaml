@@ -1,7 +1,7 @@
 - hosts: all
   become: true
   tasks:
-    - name: Instalação de pacote essenciais 
+    - name: Instalação de pacotes essenciais
       apt:
         name: "{{ item }}"
         state: present
@@ -14,12 +14,16 @@
         - wget
         - snap
         - gnupg2
-    - name: Instalar o kubectl
+        - iptables
+        - conntrack
+
+    - name: Instalar kubectl via snap
       snap:
         name: kubectl
         state: present
         classic: yes
-    - name: Instalar o helm
+
+    - name: Instalar helm via snap
       snap:
         name: helm
         state: present
@@ -28,53 +32,97 @@
 - hosts: controlplane
   become: true
   vars:
-    k3s_version: "latest"  
+    k3s_version: "latest"
   tasks:
-    - name: Instalacao k3s (server)
+    - name: Instalar k3s server
       shell: |
-        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3s_version }} sh -s - server --cluster-init
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3s_version }} K3S_KUBECONFIG_MODE=644 sh -s - server --cluster-init
       args:
         creates: /usr/local/bin/k3s
 
-    - name: Aquisição token do nó k3s
-      shell: cat /var/lib/rancher/k3s/server/node-token
-      register: node_token
-    - name: Salvar token em /tmp/k3s_token
-      copy:
-        content: "{{ node_token.stdout }}"
-        dest: /tmp/k3s_token
-        mode: 0600
+    - name: Ler token do master
+      slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: node_token_encoded
 
-    - name: Obter o Kubeconfig para o control plane do ansible
+    - name: Salvar token decodificado em variável
+      set_fact:
+        node_token: "{{ node_token_encoded.content | b64decode }}"
+
+    - name: Obter kubeconfig do control plane
       fetch:
         src: /etc/rancher/k3s/k3s.yaml
         dest: ./kubeconfig
         flat: yes
 
+    - name: Adicionar repositórios de pacotes de observabilidade
+      shell: |
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm repo add grafana https://grafana.github.io/helm-charts
+        helm repo update
+      args:
+        creates: /home/ubuntu/.cache/helm
+
+    - name: Instalar o Prometheus
+      helm:
+        name: prometheus
+        chart: prometheus-community/kube-prometheus-stack
+        namespace: monitoring
+        create_namespace: yes
+        values:
+          - grafana:
+              adminUser: admin
+              adminPassword: admin123
+
+    - name: Instalar o Loki + Promtail
+      helm:
+        name: loki
+        chart: grafana/loki-stack
+        namespace: logging
+        create_namespace: yes
+        values:
+          - promtail:
+              enabled: true
+
+    - name: Adicionar repositório Jetstack
+      shell: |
+        helm repo add jetstack https://charts.jetstack.io
+        helm repo update
+      args:
+        creates: /home/ubuntu/.cache/helm
+
+    - name: Instalar cert-manager
+      helm:
+        name: cert-manager
+        chart: jetstack/cert-manager
+        namespace: cert-manager
+        create_namespace: yes
+        values:
+          installCRDs: true
 - hosts: workers
   become: true
   tasks:
-    - name: Copiar token do control plane para os nós workers
-      fetch:
-        src: /tmp/k3s_token
-        dest: /tmp/k3s_token_remote_{{ inventory_hostname }}
-        flat: yes
-      delegate_to: k8s-control
+    - name: Copiar token do master para worker
+      copy:
+        content: "{{ hostvars[groups['controlplane'][0]].node_token }}"
+        dest: /tmp/k3s_token
+        mode: 0600
 
-    - name: Instalar agent do k3s
+    - name: Instalar k3s agent
       shell: |
-        TOKEN=$(cat /tmp/k3s_token_remote_{{ inventory_hostname }})
-        curl -sfL https://get.k3s.io | K3S_URL="https://{{ hostvars['k8s-control'].ansible_host }}:6443" K3S_TOKEN="$TOKEN" sh -
+        TOKEN=$(cat /tmp/k3s_token)
+        curl -sfL https://get.k3s.io | K3S_URL="https://{{ hostvars[groups['controlplane'][0]].ansible_host }}:6443" K3S_TOKEN="$TOKEN" sh -
       args:
         creates: /usr/local/bin/k3s
 
-    - nome: Checar se o cluster está funcionando
-      shell: |
-        KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get nodes
+- hosts: controlplane
+  become: true
+  tasks:
+    - name: Checar se o cluster está funcionando
+      shell: KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get nodes
       register: result
-      failed_when: "'Ready' não está em result.stdout"
+      failed_when: "'Ready' not in result.stdout"
       changed_when: false
-      delegate_to: k8s-control
-      retries: 5
+      retries: 10
       delay: 10
       until: result.rc == 0

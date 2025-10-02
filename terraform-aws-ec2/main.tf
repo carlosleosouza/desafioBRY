@@ -27,6 +27,14 @@ resource "aws_security_group" "ec2_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    description = "HTTPS"
+    from_port   = 6443
+    to_port     = 6443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -39,55 +47,30 @@ resource "aws_security_group" "ec2_sg" {
   }
 }
 
-data "aws_ami" "ubuntu" {
-  most_recent = true
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-22.04-amd64-server-*"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-
-  owners = ["099720109477"]
-}
-
-resource "aws_instance" "k8s_control" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = var.tipo_instancia_master
-  count = 1
-  key_name      = var.nome_ssh_key
-  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
-  subnet_id = data.aws_subnets.default.ids[0]
-
-  root_block_device {
-    volume_size = var.tamanho_volume
-    volume_type = "gp3"
-  }
+# Instância master
+resource "aws_instance" "master" {
+  ami             = var.ami_id
+  instance_type   = var.tipo_instancia_master
+  key_name        = var.nome_ssh_key
+  security_groups = [aws_security_group.ec2_sg.name]
+  associate_public_ip_address = true
 
   tags = {
-    Name = "${var.projeto}-controlplane-${count.index + 1}"
+    Name = "k3s-master"
   }
 }
 
+# Instância worker
 resource "aws_instance" "worker" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = var.tipo_instancia_workers
-  count         = 2
-  key_name      = var.nome_ssh_key
-  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
-  subnet_id = data.aws_subnets.default.ids[0]
-
-  root_block_device {
-    volume_size = var.tamanho_volume
-    volume_type = "gp3"
-  }
+  ami             = var.ami_id
+  instance_type   = var.tipo_instancia_workers
+  count           = var.num_workers
+  key_name        = var.nome_ssh_key
+  security_groups = [aws_security_group.ec2_sg.name]
+  associate_public_ip_address = true
 
   tags = {
-    Name = "${var.projeto}-worker-${count.index + 1}"
+    Name = "k3s-master"
   }
 }
 
