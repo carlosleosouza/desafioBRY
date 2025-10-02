@@ -49,10 +49,10 @@ resource "aws_security_group" "ec2_sg" {
 
 # Instância master
 resource "aws_instance" "master" {
-  ami             = var.ami_id
-  instance_type   = var.tipo_instancia_master
-  key_name        = var.nome_ssh_key
-  security_groups = [aws_security_group.ec2_sg.name]
+  ami                         = var.ami_id
+  instance_type               = var.tipo_instancia_master
+  key_name                    = var.nome_ssh_key
+  security_groups             = [aws_security_group.ec2_sg.name]
   associate_public_ip_address = true
 
   tags = {
@@ -62,22 +62,27 @@ resource "aws_instance" "master" {
 
 # Instância worker
 resource "aws_instance" "worker" {
-  ami             = var.ami_id
-  instance_type   = var.tipo_instancia_workers
-  count           = var.num_workers
-  key_name        = var.nome_ssh_key
-  security_groups = [aws_security_group.ec2_sg.name]
+  ami                         = var.ami_id
+  instance_type               = var.tipo_instancia_workers
+  count                       = var.num_workers
+  key_name                    = var.nome_ssh_key
+  security_groups             = [aws_security_group.ec2_sg.name]
   associate_public_ip_address = true
 
   tags = {
-    Name = "k3s-master"
+    Name = "k3s-worker ${count.index + 1}"
   }
 }
 
 resource "local_file" "ansible_inventory" {
-  content = templatefile("${path.module}/inventory.ini.j2", {
-    public_ip = aws_instance.k8s_control.public_ip
-    public_dns = aws_instance.k8s_control.public_dns
+  content = templatefile("${path.module}/../ansible/inventory.ini", {
+    master_public_ip   = aws_instance.master.public_ip
+    master_public_dns  = aws_instance.master.public_dns
+    worker1_public_ip  = aws_instance.worker[0].public_ip
+    worker1_public_dns = aws_instance.worker[0].public_dns
+    worker2_public_ip  = aws_instance.worker[1].public_ip
+    worker2_public_dns = aws_instance.worker[1].public_dns
   })
   filename = "${path.module}/../ansible/inventory.ini"
 }
+
