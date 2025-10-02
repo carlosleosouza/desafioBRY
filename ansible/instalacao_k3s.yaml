@@ -16,24 +16,32 @@
         - gnupg2
         - iptables
         - conntrack
-
     - name: Instalar kubectl via snap
       snap:
         name: kubectl
         state: present
         classic: yes
-
     - name: Instalar helm via snap
       snap:
         name: helm
         state: present
         classic: yes
-
-- hosts: controlplane
+- hosts: master
   become: true
   vars:
-    k3s_version: "latest"
+    k3s_version: "v1.34.1+k3s1"
   tasks:
+    - name: Obter informações do usuário atual
+      set_fact:
+        user_home: "{{ ansible_user_dir }}"
+        current_user: "{{ ansible_user_id }}"
+    - name: Instalar biblioteca Python 'kubernetes'
+      pip:
+        name: kubernetes
+        state: present
+        executable: pip3
+        extra_args: "--break-system-packages"
+      become: yes
     - name: Instalar k3s server
       shell: |
         curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3s_version }} K3S_KUBECONFIG_MODE=644 sh -s - server --cluster-init
@@ -57,37 +65,39 @@
         helm repo add grafana https://grafana.github.io/helm-charts
         helm repo update
       args:
-        creates: /home/ubuntu/.cache/helm
+        creates: "{{ ansible_user_dir }}/.cache/helm"
     - name: Instalar o Prometheus
-      kubernetes.core.k8s:
+      kubernetes.core.helm:
         name: prometheus
-        chart: prometheus-community/kube-prometheus-stack
-        namespace: monitoring
-        create_namespace: yes
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: monitoring
+        create_namespace: true
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
         values:
-          - grafana:
-              adminUser: admin
-              adminPassword: admin123
+          grafana:
+            adminUser: admin
+            adminPassword: admin123
     - name: Instalar o Loki + Promtail
-      kubernetes.core.k8s:
+      kubernetes.core.helm:
         name: loki
-        chart: grafana/loki-stack
-        namespace: logging
+        chart_ref: grafana/loki-stack
+        release_namespace: logging
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
         create_namespace: yes
         values:
-          - promtail:
-              enabled: true
-    - name: Adicionar repositório Jetstack
-      shell: |
-        helm repo add jetstack https://charts.jetstack.io
-        helm repo update
-      args:
-        creates: /home/ubuntu/.cache/helm
+          promtail:
+            enabled: true
+    - name: Adicionar repositório Helm do cert-manager
+      kubernetes.core.helm_repository:
+        name: jetstack
+        repo_url: https://charts.jetstack.io
+        state: present
     - name: Instalar o cert-manager
-      kubernetes.core.k8s:
+      kubernetes.core.helm:
         name: cert-manager
-        chart: jetstack/cert-manager
-        namespace: cert-manager
+        chart_ref: jetstack/cert-manager
+        release_namespace: cert-manager
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
         create_namespace: yes
         values:
           installCRDs: true
@@ -112,7 +122,7 @@
     - name: Deploy da aplicação WhoAmI
       kubernetes.core.k8s:
         name: whoami
-        chart: /home/ubuntu/charts/whoami
+        chart: "{{ ansible_user_dir }}/charts/whoami"
         namespace: apps
         create_namespace: yes
         values:
@@ -120,7 +130,6 @@
           - strategy.type: bluegreen
           - ingress.host: whoami.meudominio.com
           - ingress.tls.enabled: true
-
 - hosts: workers
   become: true
   tasks:
@@ -129,14 +138,12 @@
         content: "{{ hostvars[groups['controlplane'][0]].node_token }}"
         dest: /tmp/k3s_token
         mode: 0600
-
     - name: Instalar k3s agent
       shell: |
         TOKEN=$(cat /tmp/k3s_token)
         curl -sfL https://get.k3s.io | K3S_URL="https://{{ hostvars[groups['controlplane'][0]].ansible_host }}:6443" K3S_TOKEN="$TOKEN" sh -
       args:
         creates: /usr/local/bin/k3s
-
 - hosts: controlplane
   become: true
   tasks:
