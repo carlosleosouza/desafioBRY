@@ -1,7 +1,7 @@
 - hosts: all
   become: true
   tasks:
-    - name: Instalação de pacotes essenciais
+    - name: Instalação de pacotes essenciais para todos os hosts
       apt:
         name: "{{ item }}"
         state: present
@@ -39,22 +39,18 @@
         curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3s_version }} K3S_KUBECONFIG_MODE=644 sh -s - server --cluster-init
       args:
         creates: /usr/local/bin/k3s
-
     - name: Ler token do master
       slurp:
         src: /var/lib/rancher/k3s/server/node-token
       register: node_token_encoded
-
     - name: Salvar token decodificado em variável
       set_fact:
         node_token: "{{ node_token_encoded.content | b64decode }}"
-
     - name: Obter kubeconfig do control plane
       fetch:
         src: /etc/rancher/k3s/k3s.yaml
         dest: ./kubeconfig
         flat: yes
-
     - name: Adicionar repositórios de pacotes de observabilidade
       shell: |
         helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -62,9 +58,8 @@
         helm repo update
       args:
         creates: /home/ubuntu/.cache/helm
-
     - name: Instalar o Prometheus
-      helm:
+      kubernetes.core.k8s:
         name: prometheus
         chart: prometheus-community/kube-prometheus-stack
         namespace: monitoring
@@ -73,9 +68,8 @@
           - grafana:
               adminUser: admin
               adminPassword: admin123
-
     - name: Instalar o Loki + Promtail
-      helm:
+      kubernetes.core.k8s:
         name: loki
         chart: grafana/loki-stack
         namespace: logging
@@ -83,22 +77,50 @@
         values:
           - promtail:
               enabled: true
-
     - name: Adicionar repositório Jetstack
       shell: |
         helm repo add jetstack https://charts.jetstack.io
         helm repo update
       args:
         creates: /home/ubuntu/.cache/helm
-
-    - name: Instalar cert-manager
-      helm:
+    - name: Instalar o cert-manager
+      kubernetes.core.k8s:
         name: cert-manager
         chart: jetstack/cert-manager
         namespace: cert-manager
         create_namespace: yes
         values:
           installCRDs: true
+    - name: Criar ClusterIssuer para meu e-mail
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: letsencrypt-prod
+          spec:
+            acme:
+              server: https://acme-v02.api.letsencrypt.org/directory
+              email: carlosleosouza@gmail.com
+              privateKeySecretRef:
+                name: letsencrypt-prod
+              solvers:
+                - http01:
+                    ingress:
+                      class: nginx
+    - name: Deploy da aplicação WhoAmI
+      kubernetes.core.k8s:
+        name: whoami
+        chart: /home/ubuntu/charts/whoami
+        namespace: apps
+        create_namespace: yes
+        values:
+          - image.tag: "latest"
+          - strategy.type: bluegreen
+          - ingress.host: whoami.meudominio.com
+          - ingress.tls.enabled: true
+
 - hosts: workers
   become: true
   tasks:

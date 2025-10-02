@@ -42,6 +42,6 @@ variable "projeto" {
 
 variable "versao_terraform" {
   description = "Versão do Terraform"
-  type        = string
-  default     = ">=1.5.0"
+  type = string
+  default = "1.5.0"
 }
