@@ -1,0 +1,20 @@
+replicaCount: 2
+
+image:
+  repository: jwilder/whoami
+  tag: latest
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  host: whoami.local
+  tls:
+    enabled: true
+    secretName: whoami-tls
+
+strategy:
+  type: bluegreen  # ou canary 
+  
