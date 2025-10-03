@@ -134,14 +134,17 @@
         msg:
           - "playbook_dir: {{ playbook_dir }}"
           - "Caminho do chart: {{ chart_path }}"
+    #### Verificsr se a chart existe ####
     - name: Verificar se chart existe
       stat:
         path: "{{ chart_path }}/Chart.yaml"
       register: chart_check
       delegate_to: localhost
+    #### Mostrar resultado da existência da chart ####
     - name: Mostrar resultado
       debug:
         var: chart_check
+    #### Listar conteúdo do diretório de charts ####
     - name: Listar conteúdo do diretório charts
       shell: ls -la {{ chart_path}}
       register: charts_content
@@ -149,7 +152,10 @@
     - name: Mostrar conteúdo
       debug:
         var: charts_content.stdout_lines
+    #### Deploy da aplicação WhoAmI ####
     - name: Deploy da aplicação WhoAmI
+      #### Deploy da aplicação WhoAmI ####
+
       kubernetes.core.helm:
         name: whoami
         chart_ref: "{{ chart_path}}"
@@ -157,15 +163,19 @@
         create_namespace: yes
         kubeconfig: /etc/rancher/k3s/k3s.yaml
         force: yes
+        replace: yes # Força substituição de recursos
+        wait: yes
+        atomic: yes # Faz rollback se falhar
         values:
           image:
             tag: "latest"
           strategy:
-            type: bluegreen
+            type: RoollingUpdate
           ingress:
-            host: whoami.meudominio.com
+            host: whoami.local
             tls:
               enabled: true
+          forceRedeploy: "{{ ansible_date_time.iso8601 }}"
 ##### Host Workers #####
 - hosts: workers
   become: true
