@@ -175,8 +175,6 @@
         values:
           image:
             tag: "latest"
-          strategy:
-            type: RoollingUpdate
           ingress:
             host: whoami.local
             tls:
