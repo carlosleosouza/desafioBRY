@@ -166,9 +166,6 @@
             host: whoami.meudominio.com
             tls:
               enabled: true
-          service:
-            port: 80
-            targetPort: 8000
 ##### Host Workers #####
 - hosts: workers
   become: true
