@@ -2,24 +2,32 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "whoami.fullname" . }}
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  name: {{ include "whoami.fullname" $ }}-ingress
 spec:
+  ingressClassName: {{ .Values.ingress.ingressClassName | default "traefik" }}
   tls:
+    {{- if .Values.ingress.tls.enabled }}
+    {{- if .Values.ingress.tls.secretName }}
     - hosts:
-        - {{ .Values.ingress.host }}
+        {{- range .Values.ingress.hosts }}
+        - {{ .host }}
+        {{- end }}
       secretName: {{ .Values.ingress.tls.secretName }}
+    {{- end }}
+    {{- end }}
   rules:
-    - host: {{ .Values.ingress.host }}
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host }}
       http:
         paths:
-          - path: /
-            pathType: Prefix
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ include "whoami.fullname" . }}
+                name: {{ include "whoami.fullname" $ }}-svc
                 port:
-                  number: {{ .Values.service.port }}
+                  number: {{ .port }}
+          {{- end }}
+    {{- end }}
 {{- end }}

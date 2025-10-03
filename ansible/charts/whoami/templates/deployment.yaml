@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "whoami.fullname" . }}
+  name: {{ include "whoami.fullname" . }}-deploy
   labels:
     app: {{ include "whoami.name" . }}
 spec:

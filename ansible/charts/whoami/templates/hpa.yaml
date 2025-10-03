@@ -2,7 +2,7 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "whoami.fullname" . }}
+  name: {{ include "whoami.fullname" . }}-hpa
   namespace: {{ .Release.Namespace }}
   labels:
     app: {{ include "whoami.name" . }}
@@ -10,37 +10,37 @@ spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-  name: {{ include "whoami.fullname" . }}-{{ .Values.strategy.type }}
-  minReplicas: {{ .Values.autoscaling.minReplicas }}
-  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+    name: {{ include "whoami.fullname" . }}-deploy
+  minReplicas: {{ .Values.hpa.minReplicas }}
+  maxReplicas: {{ .Values.hpa.maxReplicas }}
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+          averageUtilization: {{ .Values.hpa.targetCPUUtilizationPercentage }}
     - type: Resource
       resource:
         name: memory
         target:
           type: Utilization
-          averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+          averageUtilization: {{ .Values.hpa.targetMemoryUtilizationPercentage }}
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: {{ .Values.autoscaling.behavior.scaleUp.stabilizationWindowSeconds }}
-      selectPolicy: {{ .Values.autoscaling.behavior.scaleUp.selectPolicy }}
+      stabilizationWindowSeconds: {{ .Values.hpa.behavior.scaleUp.stabilizationWindowSeconds }}
+      selectPolicy: {{ .Values.hpa.behavior.scaleUp.selectPolicy }}
       policies:
-        {{- range .Values.autoscaling.behavior.scaleUp.policies }}
+        {{- range .Values.hpa.behavior.scaleUp.policies }}
         - type: {{ .type }}
           value: {{ .value }}
           periodSeconds: {{ .periodSeconds }}
         {{- end }}
     scaleDown:
-      stabilizationWindowSeconds: {{ .Values.autoscaling.behavior.scaleDown.stabilizationWindowSeconds }}
-      selectPolicy: {{ .Values.autoscaling.behavior.scaleDown.selectPolicy }}
+      stabilizationWindowSeconds: {{ .Values.hpa.behavior.scaleDown.stabilizationWindowSeconds }}
+      selectPolicy: {{ .Values.hpa.behavior.scaleDown.selectPolicy }}
       policies:
-        {{- range .Values.autoscaling.behavior.scaleDown.policies }}
+        {{- range .Values.hpa.behavior.scaleDown.policies }}
         - type: {{ .type }}
           value: {{ .value }}
           periodSeconds: {{ .periodSeconds }}

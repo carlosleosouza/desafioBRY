@@ -9,20 +9,12 @@ service:
   type: ClusterIP
   port: 80
   targetPort: 8000
-  extraLabels: {}
 
-ingress:
-  enabled: true
-  host: whoami.local
-  tls:
-    enabled: true
-    secretName: whoami-tls
-  extraLabels: {}
 deployment:
   replicas: 2
 
 hpa:
-  enabled: false
+  enabled: true
   minReplicas: 2
   maxReplicas: 4
   targetCPUUtilizationPercentage: 80
@@ -48,3 +40,16 @@ hpa:
         - type: Pods
           value: 4
           periodSeconds: 15
+
+ingress:
+  enabled: true
+  ingressClassName: "traefik"
+  hosts:
+    - host: whoami.local
+      paths:
+        - path: /
+          pathType: Prefix
+          port: 80
+  tls:
+    enabled: true
+    secretName: whoami-tls
