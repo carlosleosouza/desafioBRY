@@ -1,3 +1,4 @@
+##### Todos os hosts #####
 - hosts: all
   become: true
   tasks:
@@ -26,10 +27,12 @@
         name: helm
         state: present
         classic: yes
+#### Host Master #####
 - hosts: master
   become: true
   vars:
     k3s_version: "v1.34.1+k3s1"
+    chart_path: "{{ playbook_dir }}/charts/whoami"
   tasks:
     - name: Obter informações do usuário atual
       set_fact:
@@ -104,6 +107,7 @@
     - name: Criar ClusterIssuer para meu e-mail
       kubernetes.core.k8s:
         state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
         definition:
           apiVersion: cert-manager.io/v1
           kind: ClusterIssuer
@@ -119,32 +123,58 @@
                 - http01:
                     ingress:
                       class: nginx
+    - name: Debug - verificar caminhos dos arquivos
+      debug:
+        msg:
+          - "playbook_dir: {{ playbook_dir }}"
+          - "Caminho do chart: {{ chart_path }}"
+    - name: Verificar se chart existe
+      stat:
+        path: "{{ chart_path }}/Chart.yaml"
+      register: chart_check
+      delegate_to: localhost
+    - name: Mostrar resultado
+      debug:
+        var: chart_check
+    - name: Listar conteúdo do diretório charts
+      shell: ls -la {{ chart_path}}
+      register: charts_content
+      delegate_to: localhost
+    - name: Mostrar conteúdo
+      debug:
+        var: charts_content.stdout_lines
     - name: Deploy da aplicação WhoAmI
-      kubernetes.core.k8s:
+      kubernetes.core.helm:
         name: whoami
-        chart: "{{ ansible_user_dir }}/charts/whoami"
-        namespace: apps
+        chart_ref: "{{ chart_path}}"
+        release_namespace: apps
         create_namespace: yes
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
         values:
-          - image.tag: "latest"
-          - strategy.type: bluegreen
-          - ingress.host: whoami.meudominio.com
-          - ingress.tls.enabled: true
+          image:
+            tag: "latest"
+          strategy:
+            type: bluegreen
+          ingress:
+            host: whoami.meudominio.com
+            tls:
+              enabled: true
+##### Host Workers #####
 - hosts: workers
   become: true
   tasks:
     - name: Copiar token do master para worker
       copy:
-        content: "{{ hostvars[groups['controlplane'][0]].node_token }}"
+        content: "{{ hostvars[groups['master'][0]].node_token }}"
         dest: /tmp/k3s_token
         mode: 0600
     - name: Instalar k3s agent
       shell: |
         TOKEN=$(cat /tmp/k3s_token)
-        curl -sfL https://get.k3s.io | K3S_URL="https://{{ hostvars[groups['controlplane'][0]].ansible_host }}:6443" K3S_TOKEN="$TOKEN" sh -
+        curl -sfL https://get.k3s.io | K3S_URL="https://{{ hostvars[groups['master'][0]].ansible_host }}:6443" K3S_TOKEN="$TOKEN" sh -
       args:
         creates: /usr/local/bin/k3s
-- hosts: controlplane
+- hosts: master
   become: true
   tasks:
     - name: Checar se o cluster está funcionando

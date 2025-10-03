@@ -1,0 +1,49 @@
+fullnameOverride: ""
+nameOverride: ""
+
+image:
+  repository: jwilder/whoami
+  tag: latest
+
+service:
+  type: ClusterIP
+  port: 80
+  extraLabels: {}
+
+ingress:
+  enabled: true
+  host: whoami.local
+  tls:
+    enabled: true
+    secretName: whoami-tls
+  extraLabels: {}
+deployment:
+  replicas: 2
+
+hpa:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 5 # tempo em segundos para observar antes de aumentar
+      selectPolicy: Max # pode ser Max, Min ou Disabled
+      policies:
+        - type: Percent
+          value: 100 # Pode ser Percent ou Pods. É o Percentual ou número de pods aumentar de uma vez
+          periodSeconds: 60 # período em segundos para aplicar a política
+        - type: Pods
+          value: 4 # Pode ser Percent ou Pods. É o Percentual ou número de pods aumentar de uma vez
+          periodSeconds: 60 # período em segundos para aplicar a política
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Min
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15

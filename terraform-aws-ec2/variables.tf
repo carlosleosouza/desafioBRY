@@ -7,17 +7,18 @@ variable "aws_regiao" {
 variable "tipo_instancia_master" {
   description = "Tipo da instância EC2"
   type        = string
-  default     = "t3a.small"
+  default     = "t2.micro"
 }
 
 variable "tipo_instancia_workers" {
   description = "Tipo da instância EC2"
   type        = string
-  default     = "t3.mciro"
+  default     = "t2.micro"
 }
 variable "ami_id" {
   description = "Versão da AMI - Ubuntu 24.04"
   type        = string
+  default     = "ami-0e8459476fed2e23b"
 }
 
 variable "num_workers" {
@@ -26,6 +27,7 @@ variable "num_workers" {
 variable "nome_ssh_key" {
   description = "Nome da chave SSH já criada na AWS"
   type        = string
+  default = "minha-chave-k3s"
 }
 
 variable "tamanho_volume" {

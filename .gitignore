@@ -10,3 +10,5 @@ ansible-template
 *.tfvars.json
 .terraformrc
 terraform.rc
+aws/
+awscliv2.zip
