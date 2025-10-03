@@ -152,10 +152,16 @@
     - name: Mostrar conteúdo
       debug:
         var: charts_content.stdout_lines
+    #### Remover release existente ####
+    - name: Remover release existente
+      kubernetes.core.helm:
+        name: whoami
+        release_namespace: apps
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        state: absent
+      ignore_errors: yes
     #### Deploy da aplicação WhoAmI ####
     - name: Deploy da aplicação WhoAmI
-      #### Deploy da aplicação WhoAmI ####
-
       kubernetes.core.helm:
         name: whoami
         chart_ref: "{{ chart_path}}"
