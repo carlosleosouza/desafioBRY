@@ -62,6 +62,7 @@
         src: /etc/rancher/k3s/k3s.yaml
         dest: ./kubeconfig
         flat: yes
+    #### observabilidade
     - name: Adicionar repositórios de pacotes de observabilidade
       shell: |
         helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -69,6 +70,7 @@
         helm repo update
       args:
         creates: "{{ ansible_user_dir }}/.cache/helm"
+    #### Prometheus + Grafana ####
     - name: Instalar o Prometheus
       kubernetes.core.helm:
         name: prometheus
@@ -80,6 +82,7 @@
           grafana:
             adminUser: admin
             adminPassword: admin123
+    #### Loki + Promtail
     - name: Instalar o Loki + Promtail
       kubernetes.core.helm:
         name: loki
@@ -90,6 +93,7 @@
         values:
           promtail:
             enabled: true
+    #### Cert Manager
     - name: Adicionar repositório Helm do cert-manager
       kubernetes.core.helm_repository:
         name: jetstack
@@ -104,6 +108,7 @@
         create_namespace: yes
         values:
           installCRDs: true
+    #### ClusterIssuer
     - name: Criar ClusterIssuer para meu e-mail
       kubernetes.core.k8s:
         state: present
@@ -123,6 +128,7 @@
                 - http01:
                     ingress:
                       class: nginx
+    #### Debugs e Deploy da aplicação WhoAmI ####
     - name: Debug - verificar caminhos dos arquivos
       debug:
         msg:
@@ -150,6 +156,7 @@
         release_namespace: apps
         create_namespace: yes
         kubeconfig: /etc/rancher/k3s/k3s.yaml
+        force: yes
         values:
           image:
             tag: "latest"
@@ -159,6 +166,9 @@
             host: whoami.meudominio.com
             tls:
               enabled: true
+          service:
+            port: 80
+            targetPort: 8000
 ##### Host Workers #####
 - hosts: workers
   become: true
