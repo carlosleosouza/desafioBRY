@@ -1,0 +1,83 @@
+- name: Configurar monitoramento da aplicação whoami
+  hosts: master
+  gather_facts: true
+  tasks:
+    - name: Garantir que o namespace apps existe
+      kubernetes.core.k8s:
+        name: apps
+        api_version: v1
+        kind: Namespace
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+    - name: Adicionar labels e annotations no Deployment do whoami para Prometheus
+      kubernetes.core.k8s_json_patch:
+        kind: Deployment
+        namespace: apps
+        name: whoami-deploy
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        patch:
+          - op: add
+            path: /metadata/labels
+            value:
+              app.kubernetes.io/monitored: "true"
+          - op: add
+            path: /spec/template/metadata/annotations
+            value:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "8000"
+              prometheus.io/path: "/"
+    - name: Criar ServiceMonitor para o whoami
+      kubernetes.core.k8s:
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        state: present
+        definition:
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: whoami-servicemonitor
+            namespace: monitoring
+            labels:
+              release: prometheus
+          spec:
+            selector:
+              matchLabels:
+                app.kubernetes.io/monitored: "true"
+            namespaceSelector:
+              matchNames:
+                - apps
+            endpoints:
+              - port: http
+                path: /
+                interval: 15s
+    - name: Criar ConfigMap de exemplo para promtail coletar logs da aplicação
+      kubernetes.core.k8s:
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        namespace: logging
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: promtail-additional-scrape
+          data:
+            promtail.yaml: |
+              scrape_configs:
+                - job_name: 'whoami'
+                  static_configs:
+                    - targets: []
+                      labels:
+                        job: whoami
+                        __path__: /var/log/containers/*whoami*.log
+    - name: Forçar reload do promtail (para aplicar novo scrape config)
+      kubernetes.core.k8s:
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        state: patched
+        namespace: logging
+        kind: DaemonSet
+        name: loki-promtail
+        definition:
+          spec:
+            template:
+              metadata:
+                annotations:
+                  prometheus-reload: "{{ ansible_date_time.iso8601 }}"

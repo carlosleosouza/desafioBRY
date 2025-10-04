@@ -82,6 +82,59 @@
           grafana:
             adminUser: admin
             adminPassword: admin123
+            service:
+              type: NodePort
+              nodePort: 32000
+          prometheus:
+            service:
+              type: NodePort
+              nodePort: 30900
+              prometheusSpec:
+            podMonitorSelector:
+              matchLabels:
+                app: whoami
+            # serviceMonitorSelector: {}
+            # ruleSelector: {}
+            retention: 7d
+            scrapeInterval: 15s
+            evaluationInterval: 15s
+          alertmanager:
+            service:
+              type: NodePort
+              nodePort: 30903
+          # PodMonitor do whoami
+          additionalPrometheusRules:
+            - name: whoami.rules
+              groups:
+                - name: whoami-group
+                  rules:
+                    - alert: DummyAlert
+                      expr: vector(1)
+                      for: 1m
+                      labels:
+                        severity: none
+                      annotations:
+                        summary: "Placeholder alert"
+          # Criar um PodMonitor diretamente
+          extraObjects:
+            - apiVersion: monitoring.coreos.com/v1
+              kind: PodMonitor
+              metadata:
+                name: whoami
+                namespace: apps
+                labels:
+                  app: whoami
+              spec:
+                selector:
+                  matchLabels:
+                    app: whoami
+                namespaceSelector:
+                  matchNames:
+                    - apps
+                podMetricsEndpoints:
+                  - port: metrics
+                    interval: 15s
+                    path: /metrics
     #### Loki + Promtail
     - name: Instalar o Loki + Promtail
       kubernetes.core.helm:
@@ -91,6 +144,11 @@
         kubeconfig: /etc/rancher/k3s/k3s.yaml
         create_namespace: yes
         values:
+          loki:
+            enabled: true
+            service:
+              type: NodePort
+              nodePort: 31000
           promtail:
             enabled: true
     #### Cert Manager
@@ -180,6 +238,11 @@
             tls:
               enabled: true
           forceRedeploy: "{{ ansible_date_time.iso8601 }}"
+    - name: Aplicar alertas da whoami
+      kubernetes.core.k8s:
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        state: present
+        definition: "{{ lookup('file', 'whoami-alerts.yaml') }}"
 ##### Host Workers #####
 - hosts: workers
   become: true

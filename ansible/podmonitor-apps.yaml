@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: whoami
+  namespace: apps
+spec:
+  selector:
+    matchLabels:
+      app: whoami
+  namespaceSelector:
+    matchNames:
+      - apps
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

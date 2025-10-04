@@ -1,0 +1,63 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: whoami-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: whoami.rules
+      rules:
+        # Disponibilidade
+        - alert: WhoamiDown
+          expr: |
+            kube_pod_container_status_ready{namespace="apps",pod=~"whoami.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod whoami não está pronto"
+            description: "Nenhum pod da aplicação whoami está pronto há mais de 2 minutos."
+
+        # Latência HTTP
+        - alert: WhoamiHighLatency
+          expr: |
+            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="whoami"}[1m])) by (le)) > 1
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alta latência na whoami"
+            description: "95º percentil da latência HTTP maior que 1s"
+
+        # Uso de CPU > 80%
+        - alert: WhoamiHighCPU
+          expr: |
+            sum(rate(container_cpu_usage_seconds_total{namespace="apps",pod=~"whoami.*"}[1m])) by (pod) > 0.8
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CPU alta na whoami"
+            description: "CPU maior que 80% no pod {{ $labels.pod }}"
+
+        # Uso de memória > 80%
+        - alert: WhoamiHighMemory
+          expr: |
+            sum(container_memory_usage_bytes{namespace="apps",pod=~"whoami.*"}) by (pod) / sum(container_spec_memory_limit_bytes{namespace="apps",pod=~"whoami.*"}) by (pod) > 0.8
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Memória alta na whoami"
+            description: "Uso de memória maior que 80% no pod {{ $labels.pod }}"
+
+        # Número de réplicas disponíveis
+        - alert: WhoamiReplicaDown
+          expr: |
+            kube_deployment_status_replicas_available{namespace="apps",deployment="whoami-deploy"} < 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Nenhuma réplica da whoami disponível"
+            description: "O deployment whoami não tem réplicas disponíveis"
